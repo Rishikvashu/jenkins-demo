@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'CHOICES',
+            choices: ['dev', 'uat', 'prod'],
+            description: 'Enter the choice'
+        )
+    }
+
+    environment {
+        JAVA_HOME = '/usr/lib/jvm/java-8-openjdk-amd64'
+        PATH = "${JAVA_HOME}/bin:${env.PATH}"
+    }
+
+    stages {
+
+        stage('checkout') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/master']],
+                    extensions: [],
+                    userRemoteConfigs: [[url: 'https://github.com/opstree/spring3hibernate']]
+                )
+            }
+        }
+
+        stage('Parallel Execution') {
+            parallel {
+
+                stage('GitLeaks Scan') {
+                    steps {
+                        sh '''
+                        gitleaks detect \
+                        --report-format json \
+                        --report-path gitleaks-report.json \
+                        || true
+                        '''
+                    }
+                }
+
+                stage('Maven Compile') {
+                    steps {
+                        sh 'mvn compile'
+                    }
+                }
+            }
+        }
+
+        stage('Maven Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Approval') {
+            steps {
+                input(
+                    message: 'Do you want to continue the build?',
+                    ok: 'Yes'
+                )
+            }
+        }
+
+        stage('Build') {
+
+            when {
+                expression {
+                    params.CHOICES == 'prod'
+                }
+            }
+
+            steps {
+                sh 'mvn package'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true
+        }
+    }
+}
