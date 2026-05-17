@@ -1,15 +1,8 @@
-pipeline {
-    agent {
-    label 'ubuntu'
-}
+@Library('my-shared-lib') _
 
-    parameters {
-        choice(
-            name: 'CHOICES',
-            choices: ['dev', 'uat', 'prod'],
-            description: 'Enter the choice'
-        )
-    }
+pipeline {
+
+    agent any
 
     environment {
         JAVA_HOME = '/usr/lib/jvm/java-8-openjdk-amd64'
@@ -18,70 +11,47 @@ pipeline {
 
     stages {
 
-        stage('checkout') {
+        stage('Checkout') {
+
             steps {
+
                 checkout scmGit(
-                    branches: [[name: '*/master']],
-                    extensions: [],
-                    userRemoteConfigs: [[url: 'https://github.com/opstree/spring3hibernate']]
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/Rishikvashu/shared-library-1.git']]
                 )
             }
         }
 
-        stage('Parallel Execution') {
-            parallel {
+        stage('Security Scan') {
 
-                stage('GitLeaks Scan') {
-                    steps {
-                        sh '''
-                        gitleaks detect \
-                        --report-format json \
-                        --report-path gitleaks-report.json \
-                        || true
-                        '''
-                    }
-                }
-
-                stage('Maven Compile') {
-                    steps {
-                        sh 'mvn compile'
-                    }
-                }
+            steps {
+                gitleaksScan()
             }
         }
 
-        stage('Maven Test') {
+        stage('Maven Lifecycle') {
+
             steps {
-                sh 'mvn test'
+                mavenBuild()
             }
         }
 
-        stage('Approval') {
-            steps {
-                input(
-                    message: 'Do you want to continue the build?',
-                    ok: 'Yes'
-                )
-            }
-        }
-
-        stage('Build') {
-
-            when {
-                expression {
-                    params.CHOICES == 'prod'
-                }
-            }
+        stage('Push Changes') {
 
             steps {
-                sh 'mvn package'
+                gitPush()
             }
         }
     }
 
     post {
+
         always {
-            archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true
+
+            archiveArtifacts(
+                artifacts: 'gitleaks-report.json',
+                fingerprint: true
+            )
         }
     }
 }
